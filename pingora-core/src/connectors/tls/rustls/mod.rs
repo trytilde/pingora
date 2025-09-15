@@ -123,12 +123,41 @@ where
 {
     let config = &tls_ctx.config;
 
-    // TODO: setup CA/verify cert store from peer
-    // peer.get_ca() returns None by default. It must be replaced by the
-    // implementation of `peer`
+    // Check if peer has custom CA certificates
+    let peer_ca = peer.get_ca();
+    let ca_certs = if let Some(ca_list) = peer_ca {
+        debug!("Using peer-specific CA certificates");
+        let mut root_store = RootCertStore::empty();
+        for ca in ca_list.iter() {
+            // Convert the CA certificate to rustls format
+            let cert_der: CertificateDer = ca.into();
+            root_store.add(cert_der).or_err(
+                InvalidCert,
+                "Failed to add peer CA certificate to root store",
+            )?;
+        }
+        Arc::new(root_store)
+    } else {
+        // Use the default CA certificates from the connector
+        Arc::clone(&tls_ctx.ca_certs)
+    };
+
     let key_pair = peer.get_client_cert_key();
     let mut updated_config_opt: Option<RusTlsClientConfig> = match key_pair {
-        None => None,
+        None => {
+            // If peer has custom CA but no client cert, still need to create new config
+            if peer_ca.is_some() {
+                debug!("Creating new config with peer-specific CA certificates");
+                let builder = RusTlsClientConfig::builder_with_protocol_versions(&[
+                    &version::TLS12,
+                    &version::TLS13,
+                ])
+                .with_root_certificates(ca_certs);
+                Some(builder.with_no_client_auth())
+            } else {
+                None
+            }
+        }
         Some(key_arc) => {
             debug!("setting client cert and key");
 
@@ -152,7 +181,7 @@ where
                 &version::TLS12,
                 &version::TLS13,
             ])
-            .with_root_certificates(Arc::clone(&tls_ctx.ca_certs));
+            .with_root_certificates(ca_certs);
             debug!("added root ca certificates");
 
             let updated_config = builder.with_client_auth_cert(certs, private_key).or_err(
