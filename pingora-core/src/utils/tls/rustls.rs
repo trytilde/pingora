@@ -108,7 +108,7 @@ pub struct WrappedX509 {
 
     #[borrows(raw_cert)]
     #[covariant]
-    pub cert: X509Certificate<'this>,
+    cert: X509Certificate<'this>,
 }
 
 pub fn parse_x509<C>(raw_cert: &C) -> X509Certificate<'_>
