@@ -28,7 +28,7 @@ use crate::server::ShutdownWatch;
 use crate::services::Service as ServiceTrait;
 
 use async_trait::async_trait;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use pingora_error::Result;
 use pingora_runtime::current_handle;
 use std::fs::Permissions;
@@ -170,11 +170,13 @@ impl<A: ServerApp + Send + Sync + 'static> Service<A> {
                         match io.handshake().await {
                             Ok(io) => Self::handle_event(io, app, shutdown).await,
                             Err(e) => {
-                                // TODO: Maybe IOApp trait needs a fn to handle/filter out this error
+                                // Handshake failures are common (health-check probes, port
+                                // scanners, clients without the right CA) and not actionable
+                                // — log at warn rather than error.
                                 if let Some(addr) = peer_addr {
-                                    error!("Downstream handshake error from {}: {e}", addr);
+                                    warn!("Downstream handshake error from {}: {e}", addr);
                                 } else {
-                                    error!("Downstream handshake error: {e}");
+                                    warn!("Downstream handshake error: {e}");
                                 }
                             }
                         }
